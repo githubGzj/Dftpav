@@ -82,9 +82,9 @@ namespace plan_manage
     // start_state << -26.3909,  20.7379  ,1.57702 ,       0;      end_state << -45.4141,   10.3171 ,0.0600779     , 0.01;
     std::cout<<"start state: "<<start_state.transpose()<<" end_state: "<<end_state.transpose()<<std::endl;
     std::cout<<"init ctrl: "<<init_ctrl.transpose()<<std::endl;
-    int status = kino_path_finder_->search(start_state, init_ctrl, end_state, true);
+    int status = kino_path_finder_->search(start_state, init_ctrl, end_state, true); //return搜索结果：到达终点，到达感知边界，没找到路
     double searcht2 = ros::Time::now().toSec();
-    if (status == path_searching::KinoAstar::NO_PATH)
+    if (status == path_searching::KinoAstar::NO_PATH) //没找到路的话，再搜索一次
     {
       std::cout << "[kino replan]: kinodynamic search fail!" << std::endl;
 
@@ -106,7 +106,7 @@ namespace plan_manage
       std::cout << "[kino replan]: kinodynamic search success." << std::endl;
     }
 
-    kino_path_finder_->getKinoNode(kino_trajs_);
+    kino_path_finder_->getKinoNode(kino_trajs_); //flat_trajs为总轨迹，根据是否倒车分段，存储多个分段轨迹flat_traj,每个flat_traj存储一个traj_pts容器，内含多个轨迹点points
     
     // ROS_WARN("hzc debug kinodynamic search");
     // std::cout << " kino_trajs_.size() :" <<   kino_trajs_.size()  << std::endl;
@@ -158,8 +158,8 @@ namespace plan_manage
   }
 
   ErrorType TrajPlanner::RunOnceParking(){
-    if(!have_parking_target) return kWrongStatus;
-    have_parking_target = false;      
+    if(!have_parking_target) return kWrongStatus; //已由订阅函数获得
+    have_parking_target = false;
     Eigen::Vector4d parking_end = end_pt;
     is_init = false;
     stamp_ = map_itf_->GetTimeStamp();
@@ -193,14 +193,14 @@ namespace plan_manage
     // if(tri_flag) return kWrongStatus;
     Eigen::Vector4d start_state;
     start_state << head_state_.vec_position, head_state_.angle, head_state_.velocity; 
-    if ((parking_end - start_state).head(2).norm() < 1.0){
+    if ((parking_end - start_state).head(2).norm() < 1.0){ //起点和终点距离过近，不规划
       ROS_WARN("arrive!");
       have_parking_target = false; //hzc
       return kWrongStatus;
     }
 
     double frontendt1 = ros::Time::now().toSec();
-    if (getKinoPath(parking_end) != kSuccess){
+    if (getKinoPath(parking_end) != kSuccess){ //用混合A*生成前端路径，并做处理，存在kino_trajs_中
       LOG(ERROR) << "[PolyTrajManager Parking] fail to get the front-end.\n";
       return kWrongStatus;   
     }
@@ -527,50 +527,60 @@ namespace plan_manage
     std::vector<Eigen::MatrixXd> waypoints_container;
     std::vector<Eigen::MatrixXd> iniState_container,finState_container;
     duration_container.resize(kino_trajs_.size());
-
+    //遍历所有轨迹段
     for(unsigned int i = 0; i < kino_trajs_.size(); i++){
-      double timePerPiece = traj_piece_duration_;
-      plan_utils::FlatTrajData kino_traj = kino_trajs_.at(i);
+      double timePerPiece = traj_piece_duration_; //默认是1
+      plan_utils::FlatTrajData kino_traj = kino_trajs_.at(i);//取出轨迹段
       singul_container.push_back(kino_traj.singul);
-      std::vector<Eigen::Vector3d> pts = kino_traj.traj_pts;
+      std::vector<Eigen::Vector3d> pts = kino_traj.traj_pts;//取出一段轨迹中的轨迹点
+      ROS_WARN("kino_trajs_ num: %d",kino_trajs_.size());
+      ROS_WARN("pts points num: %d",pts.size());
+      //创建优化类变量
       plan_utils::MinJerkOpt initMJO;
       plan_utils::Trajectory initTraj;
       int piece_nums;
       double initTotalduration = 0.0;
+      //读取轨迹初始时间，求和得出该段轨迹总时间
       for(const auto pt : pts){
         initTotalduration += pt[2];
       }
+      //将这段轨迹按照每秒一个piece，分为piece_nums个piece
       piece_nums = std::max(int(initTotalduration / timePerPiece + 0.5),2);
-      timePerPiece = initTotalduration / piece_nums; 
+      ROS_WARN("piece_nums: %d",piece_nums);
+      //按照新确定的piece数量计算每个piece的时间
+      timePerPiece = initTotalduration / piece_nums;
       ego_piece_dur_vec.resize(piece_nums);
       ego_piece_dur_vec.setConstant(timePerPiece);
       duration_container[i] = timePerPiece * piece_nums;
       ego_innerPs.resize(2, piece_nums-1);
       std::vector<Eigen::Vector3d> statelist;
       double res_time = 0;
+      //遍历piece_num段
       for(int i = 0; i < piece_nums; i++ ){
         int resolution;
         if(i==0||i==piece_nums-1){
-          resolution = dense_traj_res;
+          resolution = dense_traj_res; //32
         }
         else{
-          resolution = traj_res;
+          resolution = traj_res; //16
         }
+        //将每个piece分为16小段,首末段piece分为32段
         for(int k = 0; k <= resolution; k++){
           double t = basetime+res_time + 1.0*k/resolution*ego_piece_dur_vec[i];
-          Eigen::Vector3d pos = kino_path_finder_->evaluatePos(t);
+          //计算切分后的每个小段的末状态,装入容器statelist
+          Eigen::Vector3d pos = kino_path_finder_->evaluatePos(t); //x,y,yaw
           statelist.push_back(pos);
           if(k==resolution && i!=piece_nums-1){
-            ego_innerPs.col(i) = pos.head(2); 
+            ego_innerPs.col(i) = pos.head(2);
           }
-        } 
+        }
         res_time += ego_piece_dur_vec[i];
       }
       std::cout<<"s: "<<kino_traj.singul<<"\n";
       double tm1 = ros::Time::now().toSec();
-      getRectangleConst(statelist);
-      sfc_container.push_back(hPolys_);
-      display_hPolys_.insert(display_hPolys_.end(),hPolys_.begin(),hPolys_.end());
+      getRectangleConst(statelist);//根据车辆状态和障碍物画框框
+      sfc_container.push_back(hPolys_);//保存安全走廊
+      display_hPolys_.insert(display_hPolys_.end(),hPolys_.begin(),hPolys_.end());//
       waypoints_container.push_back(ego_innerPs);
       iniState_container.push_back(kino_traj.start_state);
       finState_container.push_back(kino_traj.final_state);
@@ -809,7 +819,7 @@ namespace plan_manage
     Eigen::Vector2d first_point, second_point;
 
     double total_dur = Traj.getTotalDuration();
-    int piece_nums = round(total_dur / traj_piece_duration_);
+    int piece_nums = round(total_dur / traj_piece_duration_); //默认1.0
     if (piece_nums < 3) piece_nums = 3;
 
 
@@ -1219,11 +1229,13 @@ namespace plan_manage
     double limitBound = 10.0;
     visualization_msgs::Marker  carMarkers;
     //generate a rectangle for this state px py yaw
+    //为每个状态生成长方形
+    //遍历每个状态
     for(const auto state : statelist){
       //generate a hPoly
       Eigen::MatrixXd hPoly;
       hPoly.resize(4, 4);
-      Eigen::Matrix<int,4,1> NotFinishTable = Eigen::Matrix<int,4,1>(1,1,1,1);      
+      Eigen::Matrix<int,4,1> NotFinishTable = Eigen::Matrix<int,4,1>(1,1,1,1);
       Eigen::Vector2d sourcePt = state.head(2);
       Eigen::Vector2d rawPt = sourcePt;
       double yaw = state[2];
@@ -1233,6 +1245,7 @@ namespace plan_manage
       egoR << cos(yaw), -sin(yaw),
               sin(yaw), cos(yaw);
       common::VehicleParam vptest;
+      //检查框内碰撞
       map_itf_->CheckIfCollisionUsingPosAndYaw(vptest,state,&test);
       if(test){
         ROS_WARN(
@@ -1291,12 +1304,11 @@ namespace plan_manage
         carMarkers.points.push_back(point1);
 
       }
-       
 
       Eigen::Vector4d expandLength;
       expandLength << 0.0, 0.0, 0.0, 0.0;
       //dcr width length
-      while(NotFinishTable.norm()>0){ 
+      while(NotFinishTable.norm()>0){
         //+dy  +dx -dy -dx  
         for(int i = 0; i<4; i++){
             if(!NotFinishTable[i]) continue;

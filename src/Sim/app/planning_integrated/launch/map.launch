@@ -4,6 +4,8 @@
   <arg name="ctrl_topic" value="/ctrl/agent_0" />
 
   <arg name="playground" value = "ring_exp_v1.0" />
+  <!-- <arg name="playground" value = "ring_small_v1.0" /> -->
+
   <!-- <param name="/use_sim_time" value="true"/> -->
 
   <node pkg="planning_integrated" type="teb_data_node" name="teb_data_node" output="screen">

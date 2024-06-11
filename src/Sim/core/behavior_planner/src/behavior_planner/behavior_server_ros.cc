@@ -68,7 +68,7 @@ void BehaviorPlannerServer::JoyCallback(const sensor_msgs::Joy::ConstPtr& msg) {
 
 void BehaviorPlannerServer::Start() {
   bp_.set_map_interface(&map_adapter_);
-  std::thread(&BehaviorPlannerServer::MainThread, this).detach();
+  std::thread(&BehaviorPlannerServer::MainThread, this).detach();//创建一个新线程来运行MainThread方法，并将其与主线程分离，使其在后台运行
 }
 
 void BehaviorPlannerServer::MainThread() {

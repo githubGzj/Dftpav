@@ -882,11 +882,11 @@ namespace plan_utils
             
             
             N = pieceNum;
-            A.create(6 * N, 6, 6);
-            b.resize(6 * N, 2);
-            c.resize(6 * N, 2);
-            adjScaledGrad.resize(6 * N, 2);
-            gdC.resize(6 * N, 2); 
+            A.create(6 * N, 6, 6);//6N * 13
+            b.resize(6 * N, 2);//6N * 2 的矩阵
+            c.resize(6 * N, 2);//6N * 2 的矩阵
+            adjScaledGrad.resize(6 * N, 2);//6*N * 2 的矩阵
+            gdC.resize(6 * N, 2);
             gdP.resize(2, N - 1);
 
             gdHead.resize(2, 3);
@@ -945,6 +945,7 @@ namespace plan_utils
             A(6 * N - 1, 6 * N - 3) = 6.0;
             A(6 * N - 1, 6 * N - 2) = 12.0;
             A(6 * N - 1, 6 * N - 1) = 20.0;
+            //LU分解
             A.factorizeLU();
 
             return;

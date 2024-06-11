@@ -39,7 +39,7 @@ namespace plan_utils
       : nh_(nh), work_rate_(work_rate), ego_id_(ego_id) 
   {
     p_input_smm_buff_ = new moodycamel::ReaderWriterQueue<SemanticMapManager>(
-        config_.kInputBufferSize);
+        config_.kInputBufferSize); //高性能、低延迟数据读写队列，队列长度100
     // p_smm_vis_   = new semantic_map_manager::Visualizer(nh, ego_id);
     p_traj_vis_  = new TrajVisualizer(nh, ego_id);
 
@@ -47,13 +47,13 @@ namespace plan_utils
     nh.param("isparking", isparking,true);
     p_planner_   = new plan_manage::TrajPlanner(nh, ego_id, enable_urban_);
 
-    parking_sub_ = nh_.subscribe("/move_base_simple/goal", 1, &TrajPlannerServer::ParkingCallback, this);
-
+    parking_sub_ = nh_.subscribe("/move_base_simple/goal", 1, &TrajPlannerServer::ParkingCallback, this); //从rviz界面订阅/move_base_simple/goal,设置停车终点
+    
     if(!isparking){
       trajplan = std::bind(&plan_manage::TrajPlanner::RunOnce,p_planner_);
     }
     else{
-      trajplan = std::bind(&plan_manage::TrajPlanner::RunOnceParking,p_planner_);
+      trajplan = std::bind(&plan_manage::TrajPlanner::RunOnceParking,p_planner_);//默认运行这个
     }
     
 
@@ -131,7 +131,7 @@ namespace plan_utils
     if (!is_replan_on_) {
       return;
     }
-    while (p_input_smm_buff_->try_dequeue(last_smm_)) {
+    while (p_input_smm_buff_->try_dequeue(last_smm_)) {//从队列中一直取元素，直至空：取得最新的map
       is_map_updated_ = true;
     }
     /*find the latest smm

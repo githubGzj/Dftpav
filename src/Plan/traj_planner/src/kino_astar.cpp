@@ -21,12 +21,12 @@ namespace path_searching
   void KinoAstar::stateTransit(Eigen::Vector3d &state0,  Eigen::Vector3d &state1,
               Eigen::Vector2d &ctrl_input){
     //helpful var
-    double psi = ctrl_input[0]; double s = ctrl_input[1]; 
+    double psi = ctrl_input[0]; double s = ctrl_input[1];  //前轮转角
     if(psi!=0){
-      double k = vp_.wheel_base()/tan(psi);
-      state1[0] = state0[0] + k*(sin(state0[2]+s/k)-sin(state0[2]));
-      state1[1] = state0[1] - k*(cos(state0[2]+s/k)-cos(state0[2]));
-      state1[2] = state0[2] + s/k;
+      double k = vp_.wheel_base()/tan(psi); //转向半径
+      state1[0] = state0[0] + k*(sin(state0[2]+s/k)-sin(state0[2]));//下一时刻 x
+      state1[1] = state0[1] - k*(cos(state0[2]+s/k)-cos(state0[2]));//下一时刻y
+      state1[2] = state0[2] + s/k;//下一时刻yaw
     }
     else{
       state1[0] = state0[0] + s * cos(state0[2]);
@@ -170,9 +170,10 @@ namespace path_searching
         }
       }
       /* ---------- state propagation loop ---------- */
+      //离散状态，搜索
       for (auto& input:inputs){
-        int singul = input[1]>0?1:-1;
-        stateTransit(cur_state, pro_state, input);
+        int singul = input[1]>0?1:-1; //判断前轮转角正负
+        stateTransit(cur_state, pro_state, input);//求下一时刻 x, y, yaw
         NodeVis(pro_state);
 
         // std::cout<<"cur_state: "<<cur_state.transpose()<<" pro: "<<pro_state.transpose()<<" input: "<<input.transpose()<<"\n";
@@ -476,7 +477,7 @@ namespace path_searching
     for(int i = 0;i<shot_timeList.size();i++){
       tmpT+=shot_timeList[i];
       if(tmpT>=t) {
-        index = i; 
+        index = i;
         CutTime = t-tmpT+shot_timeList[i];
         break;
         }
@@ -565,24 +566,26 @@ namespace path_searching
     std::vector<double> thetas;
     Eigen::Vector4d x0, xt;
     Vector2d ut, u0;
-    while(node->parent != NULL){
+    
+    while(node->parent != NULL){ //从终点回溯车辆状态,储存在roughSampleList中
       for (int k = check_num_; k >0; k--)
       {
         Eigen::Vector3d state;
         double tmparc = node->input[1] * double(k) / double(check_num_);
-        Eigen::Vector2d tmpctrl; tmpctrl << node->input[0],tmparc;
+        Eigen::Vector2d tmpctrl; tmpctrl << node->input[0],tmparc; //steer and arc
         stateTransit(node->parent->state, state, tmpctrl);
         state[2] = normalize_angle(state[2]);
-        roughSampleList.push_back(state);
-
+        roughSampleList.push_back(state); //x,y,fornt wheel steer angle
+        
       }
       node = node->parent;
-    } 
+    }
     start_state_[2] = normalize_angle(start_state_[2]);
     roughSampleList.push_back(start_state_.head(3));
     reverse(roughSampleList.begin(),roughSampleList.end());
 
-    if(is_shot_succ_){
+
+    if(is_shot_succ_){ //如果oneshot成功，对最后一段直线插值后输入roughSampleList
       ompl::base::ScopedState<> from(shotptr), to(shotptr), s(shotptr);
       Eigen::Vector3d state1,state2;
       state1 = roughSampleList.back();
@@ -594,32 +597,43 @@ namespace path_searching
       for(double l = checkl; l < shotLength; l += checkl){
         shotptr->interpolate(from(), to(), l/shotLength, s());
         reals = s.reals();
-        roughSampleList.push_back(Eigen::Vector3d(reals[0], reals[1], normalize_angle(reals[2])));        
+        roughSampleList.push_back(Eigen::Vector3d(reals[0], reals[1], normalize_angle(reals[2])));
       }
       end_state_[2] = normalize_angle(end_state_[2]);
       roughSampleList.push_back(end_state_.head(3));
     }
     //truncate the init trajectory
+
+    std::cout<<"roughSampleList num:"<<roughSampleList.size()<<std::endl;
+
     double tmp_len = 0;
     int truncate_idx = 0;
-    for(truncate_idx = 0;truncate_idx <roughSampleList.size()-1;truncate_idx++){  
+    for(truncate_idx = 0;truncate_idx <roughSampleList.size()-1;truncate_idx++){  //把路径点连线求和，计算前端路径长度，把超过truncate_len以后的路径去掉
       tmp_len += (roughSampleList[truncate_idx+1]-roughSampleList[truncate_idx]).norm();
       // if(tmp_len>truncate_len){
       //   break;
       // }
     }
-    roughSampleList.assign(roughSampleList.begin(),roughSampleList.begin()+truncate_idx+1);
-    SampleTraj = roughSampleList;
-    /*divide the whole shot traj into different segments*/   
+    roughSampleList.assign(roughSampleList.begin(),roughSampleList.begin()+truncate_idx+1); //删掉超过截断距离的路径点
+
+
+
+    SampleTraj = roughSampleList; //最终前端得到的路径点
+    
+    std::cout<<"截断后的roughSampleList num:"<<roughSampleList.size()<<std::endl;
+
+    
+    /*divide the whole shot traj into different segments*/
     shot_lengthList.clear();
     shot_timeList.clear();
     shotindex.clear();
-    shot_SList.clear(); 
+    shot_SList.clear();
     double tmpl = 0;
     bool ifnewtraj = false;
     int lastS = (SampleTraj[1]-SampleTraj[0]).head(2).dot(Eigen::Vector2d(cos(SampleTraj[0][2]),sin(SampleTraj[0][2])))>=0?1:-1;
     //hzchzc attention please!!! max_v must = min_v  max_acc must = min_acc
     shotindex.push_back(0);
+    //给轨迹初步分配时间
     for(int i = 0; i<SampleTraj.size()-1; i++){
       Eigen::Vector3d state1 = SampleTraj[i];
       Eigen::Vector3d state2 = SampleTraj[i+1];
@@ -627,10 +641,11 @@ namespace path_searching
       if(curS*lastS >= 0){
         tmpl += (state2-state1).head(2).norm();
       }
-      else{  
+      else{
         shotindex.push_back(i);
         shot_SList.push_back(lastS);
         shot_lengthList.push_back(tmpl);
+        //区分前进和倒车
         if(lastS>0)
           shot_timeList.push_back(evaluateDuration(tmpl,max_forward_vel, max_forward_acc, non_siguav,non_siguav));
         else
@@ -665,6 +680,8 @@ namespace path_searching
     }
     /*extract flat traj  
     the flat traj include the end point but not the first point*/
+    
+    std::cout<<"shot_lengthList num"<<shot_lengthList.size()<<std::endl;
     for(int i=0;i<shot_lengthList.size();i++){
       double initv = non_siguav,finv = non_siguav;
       Eigen::Vector2d Initctrlinput,Finctrlinput;
@@ -676,7 +693,7 @@ namespace path_searching
       int sig = shot_SList[i];
       std::vector<Eigen::Vector3d> localTraj;localTraj.assign(SampleTraj.begin()+shotindex[i],SampleTraj.begin()+shotindex[i+1]+1);
       traj_pts.clear();
-      thetas.clear();        
+      thetas.clear();
       double samplet;
       double tmparc = 0;
       int index = 0;
@@ -720,7 +737,7 @@ namespace path_searching
             tmparc -=(localTraj[k+1]-localTraj[k]).head(2).norm();
             break;
           }
-        }      
+        }
       }
       traj_pts.push_back(Eigen::Vector3d(localTraj.back()[0],localTraj.back()[1],shot_timeList[i]-(samplet-sampletime)));
       thetas.push_back(localTraj.back()[2]);
@@ -740,7 +757,14 @@ namespace path_searching
     for(const auto dt : shot_timeList){
        totalTrajTime += dt; 
     }
+    std::cout<<"flat traj num: "<<flat_trajs.size()<<std::endl;
+    for (int i=0;i<flat_trajs.size();++i){
+      std::cout<<"traj pts num: "<<flat_trajs[i].traj_pts.size()<<std::endl;
+    }
   }
+
+
+  //根据梯形速度分配，简略估算该段轨迹所用时间
   double KinoAstar::evaluateDuration(double length, double max_vel, double max_acc, double startV, double endV){
    double critical_len; //the critical length of two-order optimal control, acc is the input
     if(startV>max_vel||endV>max_vel){

@@ -51,19 +51,19 @@ int main(int argc, char** argv) {
   ros::init(argc, argv, "~");
   ros::NodeHandle nh("~");
   //send control law by the topic "ctrl/agent_0"
-  int ego_id;
+  int ego_id; //等于0
   if (!nh.getParam("ego_id", ego_id)) {
     ROS_ERROR("Failed to get param %d", ego_id);
-    assert(false);
+    assert(false); //终止程序
   }
   std::string agent_config_path;
   p_smm_vis_   = new semantic_map_manager::Visualizer(nh, ego_id);
-
+  //动态障碍物的路径参数文件
   if (!nh.getParam("agent_config_path", agent_config_path)) {
     ROS_ERROR("Failed to get param %s", agent_config_path.c_str());
     assert(false);
   }
-
+  //后端优化的参数文件
   std::string traj_config_path;
   if (!nh.getParam("traj_config_path", traj_config_path)) {
     ROS_ERROR("Failed to get param traj_config_path %s",
@@ -83,7 +83,7 @@ int main(int argc, char** argv) {
   double desired_vel;
   nh.param("desired_vel", desired_vel, 6.0);
   // Declare bp
-  p_bp_server_ = new planning::BehaviorPlannerServer(nh, bp_work_rate, ego_id);
+  p_bp_server_ = new planning::BehaviorPlannerServer(nh, bp_work_rate, ego_id); //bp_work_rate=20,ego_id=0
   p_bp_server_->set_user_desired_velocity(desired_vel);
   p_bp_server_->BindBehaviorUpdateCallback(BehaviorUpdateCallback);
   p_bp_server_->set_autonomous_level(3);
